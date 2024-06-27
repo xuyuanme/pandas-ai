@@ -9,9 +9,7 @@ from pandasai.connectors.sql import (
     SQLConnector,
     SQLConnectorConfig,
 )
-from pandasai.ee.agents.semantic_agent.pipeline.llm_call import (
-    LLMCall,
-)
+from pandasai.ee.agents.semantic_agent.pipeline.llm_call import LLMCall
 from pandasai.helpers.logger import Logger
 from pandasai.llm.bamboo_llm import BambooLLM
 from pandasai.llm.fake import FakeLLM

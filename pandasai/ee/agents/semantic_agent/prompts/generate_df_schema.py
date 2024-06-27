@@ -3,6 +3,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
+from pandasai.ee.helpers.json_helper import extract_json_from_json_str
 from pandasai.prompts.base import BasePrompt
 
 
@@ -30,14 +31,19 @@ class GenerateDFSchemaPrompt(BasePrompt):
 
     def validate(self, output: str) -> bool:
         try:
-            json_data = json.loads(output.replace("# SAMPLE SCHEMA", ""))
+            json_data = extract_json_from_json_str(
+                output.replace("# SAMPLE SCHEMA", "")
+            )
+            context = self.props["context"]
             if isinstance(json_data, dict):
                 json_data = [json_data]
             if isinstance(json_data, list):
                 for record in json_data:
                     if not all(key in record for key in ("name", "table")):
                         return False
-                return True
+
+                return len(context.dfs) == len(json_data)
+
         except json.JSONDecodeError:
             pass
         return False

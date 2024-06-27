@@ -4,6 +4,7 @@ from typing import List, Optional, Type, Union
 import pandas as pd
 
 from pandasai.agent.base import BaseAgent
+from pandasai.agent.base_judge import BaseJudge
 from pandasai.connectors.base import BaseConnector
 from pandasai.connectors.pandas import PandasConnector
 from pandasai.constants import PANDASBI_SETUP_MESSAGE
@@ -14,7 +15,8 @@ from pandasai.ee.agents.semantic_agent.pipeline.semantic_chat_pipeline import (
 from pandasai.ee.agents.semantic_agent.prompts.generate_df_schema import (
     GenerateDFSchemaPrompt,
 )
-from pandasai.exceptions import InvalidConfigError, InvalidTrainJson
+from pandasai.ee.helpers.json_helper import extract_json_from_json_str
+from pandasai.exceptions import InvalidConfigError, InvalidSchemaJson, InvalidTrainJson
 from pandasai.helpers.cache import Cache
 from pandasai.helpers.memory import Memory
 from pandasai.llm.bamboo_llm import BambooLLM
@@ -41,6 +43,7 @@ class SemanticAgent(BaseAgent):
         pipeline: Optional[Type[GenerateChatPipeline]] = None,
         vectorstore: Optional[VectorStore] = None,
         description: str = None,
+        judge: BaseJudge = None,
     ):
         super().__init__(dfs, config, memory_size, vectorstore, description)
 
@@ -50,6 +53,8 @@ class SemanticAgent(BaseAgent):
         self._schema = schema or None
 
         self._create_schema()
+
+        self._sort_dfs_according_to_schema()
 
         self.init_duckdb_instance()
 
@@ -68,6 +73,7 @@ class SemanticAgent(BaseAgent):
             pipeline(
                 self.context,
                 self.logger,
+                judge=judge,
                 on_prompt_generation=self._callbacks.on_prompt_generation,
                 on_code_generation=self._callbacks.on_code_generation,
                 before_code_execution=self._callbacks.before_code_execution,
@@ -77,6 +83,7 @@ class SemanticAgent(BaseAgent):
             else SemanticChatPipeline(
                 self.context,
                 self.logger,
+                judge=judge,
                 on_prompt_generation=self._callbacks.on_prompt_generation,
                 on_code_generation=self._callbacks.on_code_generation,
                 before_code_execution=self._callbacks.before_code_execution,
@@ -125,7 +132,36 @@ class SemanticAgent(BaseAgent):
     def init_duckdb_instance(self):
         for index, tables in enumerate(self._schema):
             if isinstance(self.dfs[index], PandasConnector):
+                self._sync_pandas_dataframe_schema(self.dfs[index], tables)
                 self.dfs[index].enable_sql_query(tables["table"])
+
+    def _sync_pandas_dataframe_schema(self, df: PandasConnector, schema: dict):
+        for dimension in schema["dimensions"]:
+            if dimension["type"] in ["date", "datetime", "timestamp"]:
+                column = dimension["sql"]
+                df.pandas_df[column] = pd.to_datetime(df.pandas_df[column])
+
+    def _sort_dfs_according_to_schema(self):
+        schema_dict = {
+            table["table"]: [dim["sql"] for dim in table["dimensions"]]
+            for table in self._schema
+        }
+        sorted_dfs = []
+
+        for table in self._schema:
+            matched = False
+            for df in self.dfs:
+                df_columns = df.get_head().columns
+                if all(column in df_columns for column in schema_dict[table["table"]]):
+                    sorted_dfs.append(df)
+                    matched = True
+
+            if not matched:
+                raise InvalidSchemaJson(
+                    f"Some sql column of table {table['table']} doesn't match with any dataframe"
+                )
+
+        self.dfs = sorted_dfs
 
     def _create_schema(self):
         """
@@ -151,7 +187,7 @@ class SemanticAgent(BaseAgent):
             """
         )
         self._schema = result.replace("# SAMPLE SCHEMA", "")
-        schema_data = json.loads(result.replace("# SAMPLE SCHEMA", ""))
+        schema_data = extract_json_from_json_str(result.replace("# SAMPLE SCHEMA", ""))
         if isinstance(schema_data, dict):
             schema_data = [schema_data]
 

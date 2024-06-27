@@ -1,6 +1,6 @@
-import json
-from typing import Any, Callable
+from typing import Any
 
+from pandasai.ee.helpers.json_helper import extract_json_from_json_str
 from pandasai.helpers.logger import Logger
 from pandasai.pipelines.base_logic_unit import BaseLogicUnit
 from pandasai.pipelines.logic_unit_output import LogicUnitOutput
@@ -12,11 +12,8 @@ class LLMCall(BaseLogicUnit):
     LLM Code Generation Stage
     """
 
-    def __init__(
-        self, on_code_generation: Callable[[str, Exception], None] = None, **kwargs
-    ):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.on_code_generation = on_code_generation
 
     def execute(self, input: Any, **kwargs) -> Any:
         """
@@ -45,7 +42,7 @@ class LLMCall(BaseLogicUnit):
             )
             try:
                 # Validate is valid Json
-                response_json = json.loads(response)
+                response_json = extract_json_from_json_str(response)
 
                 pipeline_context.add("llm_call", response)
 
